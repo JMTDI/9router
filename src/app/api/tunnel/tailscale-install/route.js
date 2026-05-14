@@ -1,6 +1,7 @@
 "use server";
 
 import os from "os";
+import https from "https";
 import { execSync, spawn } from "child_process";
 import { installTailscale } from "@/lib/tunnel/tailscale";
 import { getCachedPassword, loadEncryptedPassword, initDbHooks } from "@/mitm/manager";
@@ -20,35 +21,57 @@ function isRoot() {
 }
 
 /**
- * Download and run the official Tailscale install script using python3 urllib
- * (no curl/wget required — python3 is always present in Node.js containers).
- * Streams stdout/stderr via the `send` SSE callback.
+ * Fetch a URL using Node's built-in https module (no curl/wget/python needed).
+ * Follows redirects automatically.
  */
-function installViaPython(send) {
+function fetchUrl(url) {
   return new Promise((resolve, reject) => {
-    // Python one-liner: fetch install.sh via urllib then pipe to sh
-    const pyScript = [
-      "import urllib.request, subprocess, sys",
-      "r = urllib.request.urlopen('https://tailscale.com/install.sh')",
-      "script = r.read()",
-      "p = subprocess.run(['sh'], input=script)",
-      "sys.exit(p.returncode)",
-    ].join("; ");
+    https.get(url, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        return fetchUrl(res.headers.location).then(resolve, reject);
+      }
+      if (res.statusCode !== 200) {
+        return reject(new Error(`HTTP ${res.statusCode} fetching ${url}`));
+      }
+      const chunks = [];
+      res.on("data", (d) => chunks.push(d));
+      res.on("end", () => resolve(Buffer.concat(chunks)));
+      res.on("error", reject);
+    }).on("error", reject);
+  });
+}
 
-    const child = spawn("python3", ["-c", pyScript], {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-      env: { ...process.env, PATH: EXTENDED_PATH },
-    });
+/**
+ * Download the official Tailscale install script via Node https, then pipe to sh.
+ * Works with zero external tools — only sh (always present) is required.
+ */
+function installViaNodeFetch(send) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      send("progress", { message: "Downloading Tailscale install script..." });
+      const script = await fetchUrl("https://tailscale.com/install.sh");
+      send("progress", { message: "Running install script..." });
 
-    child.stdout.on("data", (d) => send("progress", { message: d.toString().trimEnd() }));
-    child.stderr.on("data", (d) => send("progress", { message: d.toString().trimEnd() }));
+      const child = spawn("sh", [], {
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        env: { ...process.env, PATH: EXTENDED_PATH },
+      });
 
-    child.on("close", (code) => {
-      if (code === 0) resolve({ success: true });
-      else reject(new Error(`Tailscale install script exited with code ${code}`));
-    });
-    child.on("error", (err) => reject(new Error(`python3 not found: ${err.message}`)));
+      child.stdout.on("data", (d) => send("progress", { message: d.toString().trimEnd() }));
+      child.stderr.on("data", (d) => send("progress", { message: d.toString().trimEnd() }));
+
+      child.on("close", (code) => {
+        if (code === 0) resolve({ success: true });
+        else reject(new Error(`Install script exited with code ${code}`));
+      });
+      child.on("error", reject);
+
+      child.stdin.write(script);
+      child.stdin.end();
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
@@ -85,13 +108,11 @@ export async function POST(request) {
       };
 
       try {
-        // Linux root (container/server): use python3 urllib — no curl/wget/sudo needed
+        // Linux root (container/server): fetch via Node built-in https, pipe to sh
         if (!isWindows && !isMac && isRoot()) {
-          send("progress", { message: "Downloading Tailscale install script via python3..." });
-          await installViaPython(send);
-          send("progress", { message: "Install complete. Starting login..." });
+          await installViaNodeFetch(send);
+          send("progress", { message: "Tailscale installed. Starting login..." });
 
-          // Kick off tailscale login to get auth URL
           const { startLogin } = await import("@/lib/tunnel/tailscale");
           const result = await startLogin(shortId).catch(() => null);
           send("done", { success: true, authUrl: result?.authUrl || null });
