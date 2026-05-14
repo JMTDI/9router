@@ -20,31 +20,35 @@ function isRoot() {
 }
 
 /**
- * On Linux servers (especially containers), try running the official install
- * script directly without sudo — works when the process is already root.
- * Streams output line-by-line via SSE.
+ * Download and run the official Tailscale install script using python3 urllib
+ * (no curl/wget required — python3 is always present in Node.js containers).
+ * Streams stdout/stderr via the `send` SSE callback.
  */
-function installViaCurlScript(send) {
+function installViaPython(send) {
   return new Promise((resolve, reject) => {
-    // curl the install script and pipe to sh
-    const child = spawn(
-      "sh",
-      ["-c", "curl -fsSL https://tailscale.com/install.sh | sh"],
-      {
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-        env: { ...process.env, PATH: EXTENDED_PATH },
-      }
-    );
+    // Python one-liner: fetch install.sh via urllib then pipe to sh
+    const pyScript = [
+      "import urllib.request, subprocess, sys",
+      "r = urllib.request.urlopen('https://tailscale.com/install.sh')",
+      "script = r.read()",
+      "p = subprocess.run(['sh'], input=script)",
+      "sys.exit(p.returncode)",
+    ].join("; ");
+
+    const child = spawn("python3", ["-c", pyScript], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      env: { ...process.env, PATH: EXTENDED_PATH },
+    });
 
     child.stdout.on("data", (d) => send("progress", { message: d.toString().trimEnd() }));
     child.stderr.on("data", (d) => send("progress", { message: d.toString().trimEnd() }));
 
     child.on("close", (code) => {
       if (code === 0) resolve({ success: true });
-      else reject(new Error(`Install script exited with code ${code}`));
+      else reject(new Error(`Tailscale install script exited with code ${code}`));
     });
-    child.on("error", reject);
+    child.on("error", (err) => reject(new Error(`python3 not found: ${err.message}`)));
   });
 }
 
@@ -54,6 +58,7 @@ export async function POST(request) {
   const isWindows = platform === "win32";
   const isMac = platform === "darwin";
   const isBrew = isMac && hasBrew();
+  // On Linux as root (common in containers), no sudo password needed
   const needsPassword = !isWindows && !isBrew && !isRoot();
 
   const sudoPassword = body.sudoPassword || getCachedPassword() || await loadEncryptedPassword() || "";
@@ -80,19 +85,18 @@ export async function POST(request) {
       };
 
       try {
-        // On Linux as root (common in containers/servers): use the official curl script directly
+        // Linux root (container/server): use python3 urllib — no curl/wget/sudo needed
         if (!isWindows && !isMac && isRoot()) {
-          send("progress", { message: "Running official Tailscale install script..." });
-          await installViaCurlScript(send);
-          send("progress", { message: "Tailscale installed successfully." });
-          // Start login flow
-          const { installTailscale: _orig, ...rest } = await import("@/lib/tunnel/tailscale");
-          // Just start login after install
+          send("progress", { message: "Downloading Tailscale install script via python3..." });
+          await installViaPython(send);
+          send("progress", { message: "Install complete. Starting login..." });
+
+          // Kick off tailscale login to get auth URL
           const { startLogin } = await import("@/lib/tunnel/tailscale");
           const result = await startLogin(shortId).catch(() => null);
           send("done", { success: true, authUrl: result?.authUrl || null });
         } else {
-          // Use the existing platform-aware install flow
+          // macOS (brew or pkg), Linux non-root (sudo), Windows (MSI)
           const result = await installTailscale(sudoPassword, shortId, (msg) => {
             send("progress", { message: msg });
           });
