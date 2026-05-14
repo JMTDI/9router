@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack --port 8000",
-    "build": "NODE_ENV=production next build --webpack",
+    "build": "node scripts/build-with-splash.js",
     "start": "NODE_ENV=production next start --port 8000",
     "dev:bun": "bun --bun next dev --webpack --port 8000",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
