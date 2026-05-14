@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev --webpack --port 8000",
     "build": "npm install && node scripts/build-with-splash.js",
-    "start": "NODE_ENV=production next start --port 8000",
+    "start": "NODE_ENV=production node .next/standalone/server.js",
     "dev:bun": "bun --bun next dev --webpack --port 8000",
     "build:bun": "NODE_ENV=production bun --bun next build --webpack",
     "start:bun": "NODE_ENV=production bun ./.next/standalone/server.js"
