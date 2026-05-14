@@ -7,7 +7,7 @@ const COMMANDS = [
   { key: "npm-build",          label: "Build",                 icon: "build",         desc: "Build Next.js (production)" },
   { key: "update-all",         label: "Full Update",           icon: "rocket_launch", desc: "Pull + install + build in one step" },
   { key: "update-9router",     label: "Update 9Router",        icon: "system_update", desc: "npm i -g 9router@latest --prefer-online" },
-  { key: "install-tailscale",  label: "Install Tailscale",     icon: "vpn_lock",      desc: "curl -fsSL https://tailscale.com/install.sh | sh" },
+  { key: "install-tailscale",  label: "Install Tailscale",     icon: "vpn_lock",      desc: "Install Tailscale (python3 urllib)" },
 ];
 
 export default function TerminalPage() {
@@ -33,6 +33,65 @@ export default function TerminalPage() {
     setExitCode(null);
     setOutput("");
 
+    // Install Tailscale uses its own dedicated API endpoint (SSE with named events)
+    if (cmdKey === "install-tailscale") {
+      try {
+        const res = await fetch("/api/tunnel/tailscale-install", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+
+        if (!res.ok) {
+          setOutput(`Error: ${res.status} ${res.statusText}\n`);
+          setRunning(false);
+          return;
+        }
+
+        const reader = res.body.getReader();
+        readerRef.current = reader;
+        const dec = new TextDecoder();
+        let buf = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split("\n\n");
+          buf = parts.pop();
+          for (const part of parts) {
+            // Named SSE events: "event: progress/done/error"
+            const eventMatch = part.match(/^event:\s*(\w+)/m);
+            const dataMatch = part.match(/^data:\s*(.+)/m);
+            if (!dataMatch) continue;
+            try {
+              const msg = JSON.parse(dataMatch[1]);
+              const evt = eventMatch?.[1] || "progress";
+              if (evt === "progress" && msg.message) setOutput((p) => p + msg.message + "\n");
+              if (evt === "done") {
+                if (msg.authUrl) setOutput((p) => p + `\nLogin URL: ${msg.authUrl}\n`);
+                else setOutput((p) => p + "\n[Tailscale installed successfully]\n");
+                setExitCode(0);
+                setRunning(false);
+              }
+              if (evt === "error") {
+                setOutput((p) => p + `\nError: ${msg.error}\n`);
+                setExitCode(1);
+                setRunning(false);
+              }
+            } catch {}
+          }
+        }
+      } catch (err) {
+        setOutput((p) => p + `\nAborted: ${err.message}\n`);
+      } finally {
+        setRunning(false);
+        readerRef.current = null;
+      }
+      return;
+    }
+
+    // All other commands use the generic terminal stream endpoint
     try {
       const res = await fetch("/api/terminal/stream", {
         method: "POST",
