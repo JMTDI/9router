@@ -24,13 +24,26 @@ const nextConfig = {
   },
   env: {},
   webpack: (config, { isServer }) => {
-    // Ignore fs/path modules in browser bundle
     if (!isServer) {
+      // Ignore fs/path modules in browser bundle
       config.resolve.fallback = {
         ...config.resolve.fallback,
         fs: false,
         path: false,
       };
+    } else {
+      // better-sqlite3 is optional — if not installed, webpack must not try to bundle it.
+      // serverExternalPackages handles runtime, but we also need a webpack external
+      // to prevent a hard "module not found" compile error when the native addon is absent.
+      const existing = config.externals || [];
+      const asArray = Array.isArray(existing) ? existing : [existing];
+      config.externals = [
+        ...asArray,
+        ({ request }, callback) => {
+          if (request === "better-sqlite3") return callback(null, "commonjs better-sqlite3");
+          callback();
+        },
+      ];
     }
     // Exclude logs, .next, gitbook subapp from watcher
     config.watchOptions = { ...config.watchOptions, ignored: /[\\/](logs|\.next|gitbook|cli)[\\/]/ };
