@@ -63,11 +63,38 @@ export async function POST(request) {
   const stream = new ReadableStream({
     start(controller) {
       const enc = new TextEncoder();
+      let closed = false;
 
-      const send = (text) =>
-        controller.enqueue(
-          enc.encode(`data: ${JSON.stringify({ text })}\n\n`)
-        );
+      const safeClose = () => {
+        if (!closed) {
+          closed = true;
+          controller.close();
+        }
+      };
+
+      const send = (text) => {
+        if (closed) return;
+        try {
+          controller.enqueue(
+            enc.encode(`data: ${JSON.stringify({ text })}\n\n`)
+          );
+        } catch {
+          closed = true;
+        }
+      };
+
+      const sendDone = (code) => {
+        if (closed) return;
+        try {
+          controller.enqueue(
+            enc.encode(`data: ${JSON.stringify({ done: true, code })}\n\n`)
+          );
+        } catch {
+          // ignore
+        } finally {
+          safeClose();
+        }
+      };
 
       send(`$ ${command.label}\n`);
 
@@ -82,18 +109,12 @@ export async function POST(request) {
 
       child.on("close", (code) => {
         send(`\n[Process finished with exit code ${code}]\n`);
-        controller.enqueue(
-          enc.encode(`data: ${JSON.stringify({ done: true, code })}\n\n`)
-        );
-        controller.close();
+        sendDone(code);
       });
 
       child.on("error", (err) => {
         send(`\nError: ${err.message}\n`);
-        controller.enqueue(
-          enc.encode(`data: ${JSON.stringify({ done: true, code: 1 })}\n\n`)
-        );
-        controller.close();
+        sendDone(1);
       });
     },
   });
