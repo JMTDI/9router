@@ -19,6 +19,11 @@ const nextConfig = {
   outputFileTracingExcludes: {
     "*": ["./gitbook/**/*"]
   },
+  // sql.js ships a .wasm binary that Next.js file-tracing ignores (it only follows JS imports).
+  // Explicitly include the entire dist/ so sql-wasm.wasm ends up in standalone/node_modules.
+  outputFileTracingIncludes: {
+    "*": ["./node_modules/sql.js/dist/**"]
+  },
   images: {
     unoptimized: true
   },
