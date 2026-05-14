@@ -36,6 +36,11 @@ const ALLOWED_COMMANDS = {
     cmd: "npm",
     args: ["i", "-g", "9router@latest", "--prefer-online"],
   },
+  "install-tailscale": {
+    label: "Install Tailscale (curl -fsSL https://tailscale.com/install.sh | sh)",
+    cmd: "sh",
+    args: ["-c", "curl -fsSL https://tailscale.com/install.sh | sh"],
+  },
 };
 
 export async function GET() {

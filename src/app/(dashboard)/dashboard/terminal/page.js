@@ -2,11 +2,12 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 
 const COMMANDS = [
-  { key: "git-pull",       label: "Git Pull",              icon: "download",      desc: "Pull latest code from repository" },
-  { key: "npm-install",    label: "Install Dependencies",  icon: "package_2",     desc: "Run npm install" },
-  { key: "npm-build",      label: "Build",                 icon: "build",         desc: "Build Next.js (production)" },
-  { key: "update-all",     label: "Full Update",           icon: "rocket_launch", desc: "Pull + install + build in one step" },
-  { key: "update-9router", label: "Update 9Router",        icon: "system_update", desc: "npm i -g 9router@latest --prefer-online" },
+  { key: "git-pull",           label: "Git Pull",              icon: "download",      desc: "Pull latest code from repository" },
+  { key: "npm-install",        label: "Install Dependencies",  icon: "package_2",     desc: "Run npm install" },
+  { key: "npm-build",          label: "Build",                 icon: "build",         desc: "Build Next.js (production)" },
+  { key: "update-all",         label: "Full Update",           icon: "rocket_launch", desc: "Pull + install + build in one step" },
+  { key: "update-9router",     label: "Update 9Router",        icon: "system_update", desc: "npm i -g 9router@latest --prefer-online" },
+  { key: "install-tailscale",  label: "Install Tailscale",     icon: "vpn_lock",      desc: "curl -fsSL https://tailscale.com/install.sh | sh" },
 ];
 
 export default function TerminalPage() {
@@ -87,7 +88,7 @@ export default function TerminalPage() {
       </div>
 
       {/* Command buttons */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {COMMANDS.map((cmd) => (
           <button
             key={cmd.key}
