@@ -31,6 +31,11 @@ const ALLOWED_COMMANDS = {
       "git pull && npm install && NODE_ENV=production npx next build --webpack",
     ],
   },
+  "update-9router": {
+    label: "npm i -g 9router@latest --prefer-online",
+    cmd: "npm",
+    args: ["i", "-g", "9router@latest", "--prefer-online"],
+  },
 };
 
 export async function GET() {
@@ -69,7 +74,7 @@ export async function POST(request) {
       const child = spawn(command.cmd, command.args, {
         cwd,
         shell: process.platform === "win32",
-        env: { ...process.env, ...( command.env || {}) },
+        env: { ...process.env, ...(command.env || {}) },
       });
 
       child.stdout.on("data", (d) => send(d.toString()));
